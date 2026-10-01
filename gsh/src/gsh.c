@@ -58,9 +58,11 @@ int main(int argc, char *argv[]) {
         // Read the user input
         getline(&buffer, &bufsize, stdin);
 
-        // Parse the input
+        // Get the first token as command, skipping empty tokens
         char *line = buffer;
+        do {
         command = strsep(&line, " \t\n");
+        } while (command != NULL && *command == '\0');
 
         // Process first token as the command
         if (strcmp(command, "exit") == 0) {
