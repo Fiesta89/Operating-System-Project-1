@@ -38,7 +38,8 @@ int main(int argc, char *argv[]) {
         fflush(stderr); 
         exit(1);
     }
-    // Check if the argument is a directory
+
+    // Check if the argument is a directory and store it
     if (!is_directory(argv[1])) {
         write(STDERR_FILENO, error_message, strlen(error_message));
         fflush(stderr);
@@ -56,19 +57,26 @@ int main(int argc, char *argv[]) {
 
         // Read the user input
         getline(&buffer, &bufsize, stdin);
+
         // Parse the input
         char *line = buffer;
         command = strsep(&line, " \t\n");
 
         // Process first token as the command
         if (strcmp(command, "exit") == 0) {
-            // Check if there are any additional arguments
-            cur_token=strsep(&buffer, " \t\n");
+
+            // Check if there are any additional arguments, skipping empty ones, should be NULL
+            do {
+            cur_token=strsep(&line, " \t\n");
+            } while (cur_token != NULL && *cur_token == '\0');
+
+            // If there is an additional argument, it's an error
             if (cur_token != NULL) {
                 write(STDERR_FILENO, error_message, strlen(error_message));
                 fflush(stderr);
                 continue;
             }
+
             // If there are no additional arguments, exit the program
             else {
                 exit_command(cur_path, buffer);
@@ -76,20 +84,32 @@ int main(int argc, char *argv[]) {
         }
 
         else if (strcmp(command, "path") == 0) {
-            cur_token = strsep(&buffer, " \t\n");
-            next_token = strsep(&buffer, " \t\n");
-            // More than one argument is not allowed
-            if (cur_token == NULL ||next_token != NULL) {
+
+            // Get the first argument
+            do {
+            cur_token=strsep(&line, " \t\n");
+            } while (cur_token != NULL && *cur_token == '\0');
+
+            // Check for extra arguments, skipping empty ones, should be NULL
+            do {
+            next_token=strsep(&line, " \t\n");
+            } while (next_token != NULL && *next_token == '\0');
+
+            // More than one argument is not allowed and throws error
+            if (cur_token == NULL || next_token != NULL) {
                 write(STDERR_FILENO, error_message, strlen(error_message));
                 fflush(stderr);
                 continue;
             }
+
             // Check if the path is valid
             if (is_directory(cur_token)) {
                 path_command(&cur_path, cur_token);
             }
             else {
                 write(STDERR_FILENO, error_message, strlen(error_message));
+                fflush(stderr);
+                continue;
             }
         }
 
