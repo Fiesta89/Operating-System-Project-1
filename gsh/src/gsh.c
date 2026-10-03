@@ -1,8 +1,13 @@
-// 10/01/2026 
+// 10/02/2026 
 // Huy Sy Nguyen
 // huysynguyen@usf.edu
 // U38376150
-// Description: A simple shell implementation
+// Description: A simple interactive shell for locating and executing games from a
+// specified repository directory. The shell supports the built-in commands
+// exit, path, and ls, executes games using fork(), execvp(), and waitpid(),
+// supports standard input redirection with '<', and displays game
+// descriptions using the --help option.
+
 
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -59,7 +64,7 @@ int main(int argc, char *argv[]) {
         cur_path = strdup(argv[1]);
     }
     
-    while(1) {
+    while (1) {
 
         // Print the prompt
         printf("gsh> ");
@@ -73,7 +78,7 @@ int main(int argc, char *argv[]) {
 
         // Process first token as the command
         do {
-        command = strsep(&line, " \t\n");
+            command = strsep(&line, " \t\n");
         } while (command != NULL && *command == '\0');
 
         // If no command is found, continue to the next iteration
@@ -86,7 +91,7 @@ int main(int argc, char *argv[]) {
 
             // Check if there are any additional arguments, skipping empty ones, should be NULL
             do {
-            cur_token=strsep(&line, " \t\n");
+                cur_token = strsep(&line, " \t\n");
             } while (cur_token != NULL && *cur_token == '\0');
 
             // If there is an additional argument, it's an error
@@ -106,12 +111,12 @@ int main(int argc, char *argv[]) {
 
             // Get the first argument
             do {
-            cur_token=strsep(&line, " \t\n");
+                cur_token = strsep(&line, " \t\n");
             } while (cur_token != NULL && *cur_token == '\0');
 
             // Check for extra arguments, skipping empty ones, should be NULL
             do {
-            next_token=strsep(&line, " \t\n");
+                next_token = strsep(&line, " \t\n");
             } while (next_token != NULL && *next_token == '\0');
 
             // More than one argument is not allowed and throws error
@@ -136,7 +141,7 @@ int main(int argc, char *argv[]) {
 
             // Check if there are any additional arguments, skipping empty ones, should be NULL
             do {
-            cur_token=strsep(&line, " \t\n");
+                cur_token = strsep(&line, " \t\n");
             } while (cur_token != NULL && *cur_token == '\0');
 
             // If there is an additional argument, it's an error
@@ -163,7 +168,7 @@ int main(int argc, char *argv[]) {
             game_arg[2] = NULL;     // For seed number
             game_arg[3] = NULL;
 
-            // Check for addtional arguments
+            // Check for additional arguments
             do {
                 cur_token = strsep(&line, " \t\n");
             } while (cur_token != NULL && *cur_token == '\0');
@@ -173,7 +178,7 @@ int main(int argc, char *argv[]) {
                 run_command(game_path, game_arg);
             }
 
-            // If arguement is --help, show help
+            // If the argument is --help, show help
             else if (strcmp(cur_token, "--help") == 0) {
 
                 // Check for additional arguments, should be NULL
@@ -222,14 +227,14 @@ int main(int argc, char *argv[]) {
                         cur_token = strsep(&line, " \t\n");
                     } while (cur_token != NULL && *cur_token == '\0');
 
-                    // Multiple redirections operators or no aregument after operator are not allowed
+                    // Require a filename immediately after the redirection operator
                     if (cur_token == NULL || (cur_token != NULL &&strcmp(cur_token, "<") == 0)) {
                         write(STDERR_FILENO, error_message, strlen(error_message));
                         fflush(stderr);
                         continue;
                     }
 
-                    // If the argument after operator is not NULL, must be file path
+                    // Store the token following the redirection operator as the input path
                     else {
 
                         // Store the file path
@@ -255,11 +260,11 @@ int main(int argc, char *argv[]) {
         
                 }
                 // There is no redirection operator
-                else if (cur_token == NULL){
-                run_command(game_path, game_arg);
+                else if (cur_token == NULL) {
+                    run_command(game_path, game_arg);
                 }
 
-                // Not operator after seed number is error
+                // Reject tokens that follow the seed without a redirection operator
                 else {
                     write(STDERR_FILENO, error_message, strlen(error_message));
                     fflush(stderr);
@@ -288,7 +293,7 @@ void path_command(char **cur_path, const char *path) {
 
 void ls_command(char *cur_path) {
 
-    // Iniialize variables
+    // Initialize variables
     struct dirent **namelist;
     int num_entries;
     char *arg[3];
@@ -299,11 +304,18 @@ void ls_command(char *cur_path) {
 
     // Read directory entries, and sort them
     num_entries = scandir(cur_path, &namelist, NULL, alphasort);
+    
+    if (num_entries == -1) {
+        char error_message[30] = "An error has occurred\n";
+        write(STDERR_FILENO, error_message, strlen(error_message));
+        fflush(stderr);
+        return;
+    }
 
     // Loop through the sorted array
     for (int i = 0; i < num_entries; i++) {
 
-        // Skip hidden files or directories
+        // Skip hidden files 
         if (namelist[i]->d_name[0] == '.') {
             free(namelist[i]);
             continue;
@@ -358,7 +370,7 @@ void run_command(char *path, char **arg) {
     }
 }
 
-// Run executable with redirection and printing
+// Run a game with --help and capture its output
 void run_help_command(char *path, char **arg) {
     pid_t pid = fork();
     if (pid == 0) {
@@ -382,7 +394,7 @@ void run_help_command(char *path, char **arg) {
         // Run the executable
         execvp(path, arg);
 
-        // Exit if execvp fails
+        // Stop the child if execvp fails; the parent prints an empty description
         exit(1);
     }
     else if (pid > 0) {
@@ -398,6 +410,7 @@ void run_help_command(char *path, char **arg) {
         write(STDERR_FILENO, error_message, strlen(error_message));
         fflush(stderr);
         free(path);
+        printf("%s: (empty)\n", arg[0]);
     }
 }
 
@@ -456,12 +469,12 @@ void print_help(const char *game_name, const char *filename) {
     size_t len = 0;
     ssize_t nread = getline(&line, &len, file);
 
-    while (nread > 0 && (line[nread - 1] == '\n' || line[nread - 1] == '\r')) {
+    while (nread > 0 && (line[nread - 1] == '\n')) {
         line[nread - 1] = '\0';
         nread--;
     }
 
-    // If file is empty, execution failed, or nothing was read
+    // Print an empty description when no help text was captured
     if (nread <= 0) {
         printf("%s: (empty)\n", game_name);
     } else {
