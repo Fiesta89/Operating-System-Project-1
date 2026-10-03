@@ -21,7 +21,9 @@ void ls_command();
 
 void run_command(char *path, char **arg);
 
-void run_ls_command(char *path, char **arg);
+void run_help_command(char *path, char **arg);
+
+void run_redirect_command(char *path, char *input_path, char **arg);
 
 void print_help(const char *game_name, const char *filename);
 
@@ -131,7 +133,23 @@ int main(int argc, char *argv[]) {
         }
 
         else if (strcmp(command, "ls") == 0) {
-            ls_command(cur_path);
+
+            // Check if there are any additional arguments, skipping empty ones, should be NULL
+            do {
+            cur_token=strsep(&line, " \t\n");
+            } while (cur_token != NULL && *cur_token == '\0');
+
+            // If there is an additional argument, it's an error
+            if (cur_token != NULL) {
+                write(STDERR_FILENO, error_message, strlen(error_message));
+                fflush(stderr);
+                continue;
+            }
+
+            // If no additional arguments, run ls
+            else {
+                ls_command(cur_path);
+            }
         }
         else {
             // Make path to game
@@ -141,11 +159,9 @@ int main(int argc, char *argv[]) {
             // Initialize argument array
             char *game_arg[6];
             game_arg[0] = (char *)command;
-            game_arg[1] = NULL;
-            game_arg[2] = NULL;
+            game_arg[1] = NULL;     // For --help/--seed
+            game_arg[2] = NULL;     // For seed number
             game_arg[3] = NULL;
-            game_arg[4] = NULL;
-            game_arg[5] = NULL;
 
             // Check for addtional arguments
             do {
@@ -159,22 +175,96 @@ int main(int argc, char *argv[]) {
 
             // If arguement is --help, show help
             else if (strcmp(cur_token, "--help") == 0) {
-                game_arg[1] = "--help";
-                run_command(game_path, game_arg);
-            }
 
-            else if (strcmp(cur_token, "--seed") == 0) {
-                game_arg[1] = "--seed";
-
-                // Get the next argument as the seed
+                // Check for additional arguments, should be NULL
                 do {
                     cur_token = strsep(&line, " \t\n");
                 } while (cur_token != NULL && *cur_token == '\0');
 
+                // If there are additional arguments, it's an error
+                if (cur_token != NULL) {
+                    write(STDERR_FILENO, error_message, strlen(error_message));
+                    fflush(stderr);
+                    continue;
+                }
+
+                // If no additional arguments, show help
+                else {
+                    game_arg[1] = "--help";
+                    run_command(game_path, game_arg);
+                }
+            }
+
+            // If argument is --seed, set the seed
+            else if (strcmp(cur_token, "--seed") == 0) {
+                game_arg[1] = "--seed";
+
+                // Get the next argument as the seed number
+                do {
+                    cur_token = strsep(&line, " \t\n");
+                } while (cur_token != NULL && *cur_token == '\0');
+                
+                // Only check if it's a valid number as the executable checks otherwise
                 if (cur_token != NULL) {
                     game_arg[2] = cur_token;
                 }
+
+                // Check for redirection operators
+                do {
+                    cur_token = strsep(&line, " \t\n");
+                } while (cur_token != NULL && *cur_token == '\0');
+
+                // If it is a redirection operator, redirects input
+                if (cur_token != NULL && strcmp(cur_token, "<") == 0) {
+                    
+                    // Get next argument
+                    do {
+                        cur_token = strsep(&line, " \t\n");
+                    } while (cur_token != NULL && *cur_token == '\0');
+
+                    // Multiple redirections operators or no aregument after operator are not allowed
+                    if (cur_token == NULL || (cur_token != NULL &&strcmp(cur_token, "<") == 0)) {
+                        write(STDERR_FILENO, error_message, strlen(error_message));
+                        fflush(stderr);
+                        continue;
+                    }
+
+                    // If the argument after operator is not NULL, must be file path
+                    else {
+
+                        // Store the file path
+                        char *redirection_path = cur_token;
+
+                        // Check if there is extra arguments, should be NULL
+                        do {
+                            cur_token = strsep(&line, " \t\n");
+                        } while (cur_token != NULL && *cur_token == '\0');
+
+                        // If there are extra arguments, it's an error
+                        if (cur_token != NULL) {
+                            write(STDERR_FILENO, error_message, strlen(error_message));
+                            fflush(stderr);
+                            continue;
+                        }
+
+                        // There is only one argument after the redirection operator
+                        else {
+                            run_redirect_command(game_path, redirection_path, game_arg);
+                        }
+                    }
+        
+                }
+                // There is no redirection operator
+                else if (cur_token == NULL){
                 run_command(game_path, game_arg);
+                }
+
+                // Not operator after seed number is error
+                else {
+                    write(STDERR_FILENO, error_message, strlen(error_message));
+                    fflush(stderr);
+                    continue;
+                }
             }
         }
     }
@@ -213,8 +303,9 @@ void ls_command(char *cur_path) {
     // Loop through the sorted array
     for (int i = 0; i < num_entries; i++) {
 
-        // Skip hidden files
+        // Skip hidden files or directories
         if (namelist[i]->d_name[0] == '.') {
+            free(namelist[i]);
             continue;
         }
 
@@ -225,7 +316,7 @@ void ls_command(char *cur_path) {
         // Change the first argument to the current entry's name
         arg[0] = namelist[i]->d_name;
 
-        run_ls_command(path, arg);
+        run_help_command(path, arg);
 
         // Free the allocated memory and reset the argument
         free(namelist[i]);
@@ -263,27 +354,35 @@ void run_command(char *path, char **arg) {
         char error_message[30] = "An error has occurred\n";
         write(STDERR_FILENO, error_message, strlen(error_message));
         fflush(stderr);
+        free(path);
     }
 }
 
 // Run executable with redirection and printing
-void run_ls_command(char *path, char **arg) {
+void run_help_command(char *path, char **arg) {
     pid_t pid = fork();
     if (pid == 0) {
 
-        // Redirect stdout to a file
+        // Open redirection file
         int fd = open("temp.txt", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+        // If open fails, print an error message
+        if (fd == -1) {
+            char error_message[30] = "An error has occurred\n";
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            fflush(stderr);
+            free(path);
+            exit(1);
+        }
+
+        // Redirect output to the file
         dup2(fd, STDOUT_FILENO);
         close(fd);
 
         // Run the executable
         execvp(path, arg);
 
-        // If execvp fails, print an error message
-        char error_message[30] = "An error has occurred\n";
-        write(STDERR_FILENO, error_message, strlen(error_message));
-        fflush(stderr);
-        // Child has to die if execvp fails or else it runs another shell
+        // Exit if execvp fails
         exit(1);
     }
     else if (pid > 0) {
@@ -298,6 +397,50 @@ void run_ls_command(char *path, char **arg) {
         char error_message[30] = "An error has occurred\n";
         write(STDERR_FILENO, error_message, strlen(error_message));
         fflush(stderr);
+        free(path);
+    }
+}
+
+void run_redirect_command(char *path, char *input_path, char **arg) {
+    pid_t pid = fork();
+    if (pid == 0) {
+
+        // Open redirection file
+        int fd = open(input_path, O_RDONLY);
+
+        // If open fails, print an error message
+        if (fd == -1) {
+            char error_message[30] = "An error has occurred\n";
+            write(STDERR_FILENO, error_message, strlen(error_message));
+            fflush(stderr);
+            free(path);
+            exit(1);
+        }
+
+        // Redirect input from the file
+        dup2(fd, STDIN_FILENO);
+        close(fd);
+
+        // Run the executable
+        execvp(path, arg);
+
+        // If execvp fails, error and exit
+        char error_message[30] = "An error has occurred\n";
+        write(STDERR_FILENO, error_message, strlen(error_message));
+        fflush(stderr);
+        exit(1);
+    }
+    else if (pid > 0) {
+        waitpid(pid, NULL, 0);
+        free(path);
+    }
+
+    else {
+        // If fork fails, print an error message
+        char error_message[30] = "An error has occurred\n";
+        write(STDERR_FILENO, error_message, strlen(error_message));
+        fflush(stderr);
+        free(path);
     }
 }
 
@@ -305,7 +448,7 @@ void run_ls_command(char *path, char **arg) {
 void print_help(const char *game_name, const char *filename) {
     FILE *file = fopen(filename, "r");
     if (file == NULL) {
-        printf("(empty)\n");
+        printf("%s: (empty)\n", game_name);
         return;
     }
 
@@ -313,11 +456,16 @@ void print_help(const char *game_name, const char *filename) {
     size_t len = 0;
     ssize_t nread = getline(&line, &len, file);
 
+    while (nread > 0 && (line[nread - 1] == '\n' || line[nread - 1] == '\r')) {
+        line[nread - 1] = '\0';
+        nread--;
+    }
+
     // If file is empty, execution failed, or nothing was read
     if (nread <= 0) {
-        printf("%s: (empty)", game_name);
+        printf("%s: (empty)\n", game_name);
     } else {
-        printf("%s: %s", game_name, line);
+        printf("%s: %s\n", game_name, line);
     }
 
     free(line);
